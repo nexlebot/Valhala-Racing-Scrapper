@@ -2,3 +2,8 @@
 __pycache__/
 *.pyc
 .idea/
+package/
+lambda.zip
+chromedriver
+*.zip
+trainer_races.json

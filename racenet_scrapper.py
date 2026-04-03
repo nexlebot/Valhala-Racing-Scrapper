@@ -4,7 +4,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
 import json
 import re
@@ -14,9 +13,10 @@ import warnings
 import os
 import requests
 from datetime import datetime, timezone
-from dotenv import load_dotenv
 
-load_dotenv()
+if os.path.exists('.env'):
+    from dotenv import load_dotenv
+    load_dotenv()
 
 BASE_API = 'https://api.p.racingwa.com.au'
 
@@ -237,20 +237,12 @@ def parse_race_result(item):
     return race_data
 
 
-def scrape_trainer_upcoming_races(trainer_url):
-    """
-    Scrapes upcoming races and race results for a trainer from RaceNet using Selenium
+IS_LAMBDA = bool(os.getenv('AWS_LAMBDA_FUNCTION_NAME'))
 
-    Args:
-        trainer_url: URL of the trainer's profile page
 
-    Returns:
-        dict: Extracted race information
-    """
-
-    # Set up Chrome options for headless operation
+def get_chrome_driver():
     chrome_options = Options()
-    chrome_options.add_argument('--headless=new')  # Use new headless mode
+    chrome_options.add_argument('--headless=new')
     chrome_options.add_argument('--no-sandbox')
     chrome_options.add_argument('--disable-dev-shm-usage')
     chrome_options.add_argument('--disable-gpu')
@@ -258,22 +250,29 @@ def scrape_trainer_upcoming_races(trainer_url):
     chrome_options.add_argument('--disable-extensions')
     chrome_options.add_argument('--disable-logging')
     chrome_options.add_argument('--log-level=3')
-    chrome_options.add_argument('--silent')
     chrome_options.add_argument(
         '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     )
 
-    # Suppress unnecessary logging
-    chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+    if IS_LAMBDA:
+        chrome_options.add_argument('--single-process')
+        chrome_options.add_argument('--homedir=/tmp')
+        chrome_options.add_argument('--disk-cache-dir=/tmp/cache')
+        chrome_options.binary_location = '/opt/chrome/chrome'
+        service = Service(executable_path='/opt/chromedriver')
+    else:
+        from webdriver_manager.chrome import ChromeDriverManager
+        service = Service(ChromeDriverManager().install())
 
+    service.log_path = '/dev/null'
+    return webdriver.Chrome(service=service, options=chrome_options)
+
+
+def scrape_trainer_upcoming_races(trainer_url):
     driver = None
 
     try:
-        # Initialize Chrome driver with service
-        service = Service(ChromeDriverManager().install())
-        service.log_path = 'NUL' if os.name == 'nt' else '/dev/null'  # Suppress ChromeDriver logs
-
-        driver = webdriver.Chrome(service=service, options=chrome_options)
+        driver = get_chrome_driver()
 
         print(f"Loading page: {trainer_url}")
         driver.get(trainer_url)
@@ -499,15 +498,6 @@ def scrape_trainer_upcoming_races(trainer_url):
             driver.quit()
 
 
-def save_to_json(data, filename='trainer_races.json'):
-    try:
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        print(f"\n✓ Data saved to {filename}")
-    except Exception as e:
-        print(f"Error saving to JSON: {e}")
-
-
 def push_to_nextjs(data, path):
     url = os.getenv('NEXTJS_BASE_URL', '').rstrip('/')
     secret = os.getenv('SCRAPER_TOKEN')
@@ -524,38 +514,26 @@ def push_to_nextjs(data, path):
         print(f"✗ Push error {path}: {e}")
 
 
-if __name__ == "__main__":
-    url = "https://www.racenet.com.au/profiles/trainer/stefan-vahala"
+def lambda_handler(event, context):
+    trainer_url = "https://www.racenet.com.au/profiles/trainer/stefan-vahala"
 
-    print("=" * 60)
-    print("RaceNet Trainer Scraper (Headless Mode)")
-    print("=" * 60)
-
-    # Scrape trainer races
-    data = scrape_trainer_upcoming_races(url)
+    data = scrape_trainer_upcoming_races(trainer_url)
     if data:
-        print("\n" + "=" * 60)
-        print(f"Trainer: {data['trainer_name']}")
-        print(f"Total upcoming races: {data['upcoming_races']['total']}")
-        print(f"Total major wins: {data['major_wins']['total']}")
-        print(f"Total previous runners: {data['previous_runners']['total']}")
-        print("=" * 60)
-        save_to_json(data)
         push_to_nextjs(data, '/api/trainer-data')
     else:
         print("Failed to scrape trainer data")
 
-    # Scrape horse profiles + stats
-    print("\n" + "=" * 60)
-    print("Scraping horse profiles & stats")
-    print("=" * 60)
     horse_names = fetch_horse_names()
-    if not horse_names:
-        print("No horses found, skipping profile scrape")
-    else:
-        print(f"Found {len(horse_names)} horses: {horse_names}")
+    if horse_names:
         profiles_data, errors = scrape_horse_profiles(horse_names)
-        print(f"Scraped: {len(profiles_data['profiles'])} horses")
         if errors:
             print(f"Errors: {errors}")
         push_to_nextjs(profiles_data, '/api/scrape-profiles')
+    else:
+        print("No horses found, skipping profile scrape")
+
+    return {'statusCode': 200, 'body': 'Scrape complete'}
+
+
+if __name__ == '__main__':
+    lambda_handler({}, {})
