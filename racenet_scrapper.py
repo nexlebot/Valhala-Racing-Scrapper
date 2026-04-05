@@ -532,6 +532,8 @@ def lambda_handler(event, context):
     else:
         print("No horses found, skipping profile scrape")
 
+    push_to_nextjs({}, '/api/revalidate')
+
     return {'statusCode': 200, 'body': 'Scrape complete'}
 
 
