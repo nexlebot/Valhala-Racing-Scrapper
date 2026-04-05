@@ -304,8 +304,18 @@ def scrape_trainer_upcoming_races(trainer_url):
                 driver.execute_script("arguments[0].click();", results_tab)
                 print("Results tab clicked successfully")
 
-                # Wait for the results sections to load
-                time.sleep(3)
+                # Wait for the results sections to actually appear
+                try:
+                    wait.until(EC.presence_of_element_located(
+                        (By.CSS_SELECTOR, 'div.profile-result-tab-list-desktop.major-win, div.profile-result-tab-list-desktop.previous-run')
+                    ))
+                    print("Results sections loaded")
+                except Exception:
+                    print("Warning: Results sections did not appear after tab click, retrying...")
+                    driver.execute_script("arguments[0].click();", results_tab)
+                    time.sleep(5)
+
+                time.sleep(2)
 
                 # Click "Display More" button to load all results
                 print("Looking for 'Display More' button...")
@@ -519,6 +529,13 @@ def lambda_handler(event, context):
 
     data = scrape_trainer_upcoming_races(trainer_url)
     if data:
+        wins = len(data.get('major_wins', {}).get('wins', []))
+        runners = len(data.get('previous_runners', {}).get('results', []))
+        if wins == 0 and runners == 0:
+            print(f"⚠ Results tab likely failed: 0 major wins, 0 previous runners. Skipping push of results sections.")
+            # Only push upcoming_races by stripping empty results
+            data['major_wins'] = {'total': 0, 'wins': []}
+            data['previous_runners'] = {'total': 0, 'results': []}
         push_to_nextjs(data, '/api/trainer-data')
     else:
         print("Failed to scrape trainer data")
@@ -532,6 +549,7 @@ def lambda_handler(event, context):
     else:
         print("No horses found, skipping profile scrape")
 
+    # Trigger cache revalidation
     push_to_nextjs({}, '/api/revalidate')
 
     return {'statusCode': 200, 'body': 'Scrape complete'}
