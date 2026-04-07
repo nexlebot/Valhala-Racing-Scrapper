@@ -278,22 +278,32 @@ def scrape_trainer_upcoming_races(trainer_url):
         driver.get(trainer_url)
 
         # Wait for the page to load
-        wait = WebDriverWait(driver, 15)
+        wait = WebDriverWait(driver, 30)
         wait.until(EC.presence_of_element_located((By.CLASS_NAME, 'profile-upcoming-races')))
-        time.sleep(2)
+        time.sleep(10)
 
         # Click on the "Results" tab to load race results
         print("Clicking on 'Results' tab...")
         try:
-            # Find all tabs
-            tabs = driver.find_elements(By.CSS_SELECTOR, "a.tab")
-
             results_tab = None
-            for tab in tabs:
-                tab_text = tab.text.strip()
-                if tab_text == 'Results':
-                    results_tab = tab
+
+            # Try multiple selectors to find the Results tab
+            selectors = ["a.tab", "button.tab", ".tab", "[role='tab']", "nav a", ".tabs a"]
+            for selector in selectors:
+                tabs = driver.find_elements(By.CSS_SELECTOR, selector)
+                for tab in tabs:
+                    if tab.text.strip() == 'Results':
+                        results_tab = tab
+                        break
+                if results_tab:
                     break
+
+            # Also try by XPath as fallback
+            if not results_tab:
+                try:
+                    results_tab = driver.find_element(By.XPATH, "//*[text()='Results' and (self::a or self::button or self::li)]")
+                except:
+                    pass
 
             if results_tab:
                 # Scroll the element into view
@@ -313,9 +323,9 @@ def scrape_trainer_upcoming_races(trainer_url):
                 except Exception:
                     print("Warning: Results sections did not appear after tab click, retrying...")
                     driver.execute_script("arguments[0].click();", results_tab)
-                    time.sleep(5)
+                    time.sleep(10)
 
-                time.sleep(2)
+                time.sleep(5)
 
                 # Click "Display More" button to load all results
                 print("Looking for 'Display More' button...")
