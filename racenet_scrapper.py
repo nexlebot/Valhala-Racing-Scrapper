@@ -287,23 +287,14 @@ def scrape_trainer_upcoming_races(trainer_url):
         try:
             results_tab = None
 
-            # Try multiple selectors to find the Results tab
-            selectors = ["a.tab", "button.tab", ".tab", "[role='tab']", "nav a", ".tabs a"]
-            for selector in selectors:
-                tabs = driver.find_elements(By.CSS_SELECTOR, selector)
-                for tab in tabs:
-                    if tab.text.strip() == 'Results':
-                        results_tab = tab
-                        break
-                if results_tab:
-                    break
+            # Wait for tabs to be present
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "a.tab")))
 
-            # Also try by XPath as fallback
-            if not results_tab:
-                try:
-                    results_tab = driver.find_element(By.XPATH, "//*[text()='Results' and (self::a or self::button or self::li)]")
-                except:
-                    pass
+            # Find by XPath with normalize-space to handle whitespace
+            try:
+                results_tab = driver.find_element(By.XPATH, "//a[contains(@class,'tab') and normalize-space()='Results']")
+            except:
+                pass
 
             if results_tab:
                 # Scroll the element into view
