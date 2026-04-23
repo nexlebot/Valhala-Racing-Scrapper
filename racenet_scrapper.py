@@ -121,6 +121,32 @@ def compute_stats(races):
     ]
 
 
+def fetch_trainer_races():
+    today = datetime.now()
+    to_date = today.strftime('%Y-%m-%d')
+    from_date = today.replace(year=today.year - 1).strftime('%Y-%m-%d')
+    res = requests.get(f'{BASE_API}/trainers/702031/races?fromDate={from_date}&toDate={to_date}', timeout=10)
+    if not res.ok:
+        print(f'⚠ Failed to fetch trainer races: {res.status_code}')
+        return []
+    races = [r for r in res.json() if not r.get('isTrial')]
+    return [{
+        'position': r.get('finishedPosition'),
+        'starters': str(r.get('numberOfStarters', '')),
+        'horse_name': r.get('horseName'),
+        'meeting': r.get('venueName'),
+        'event_name': r.get('raceType'),
+        'date': r.get('meetingDate'),
+        'distance': f"{r.get('raceDistance')}m" if r.get('raceDistance') else None,
+        'track_condition': r.get('trackCondition'),
+        'jockey_name': f"{r.get('jockey', {}).get('preferredName', '')} {r.get('jockey', {}).get('surname', '')}".strip() if r.get('jockey') else None,
+        'race_number': r.get('raceNumber'),
+        'margin': r.get('marginFromWinner'),
+        'starting_price': r.get('startingPrice'),
+        'replay_url': r.get('replayUri'),
+    } for r in races]
+
+
 def fetch_horse_names():
     url = os.getenv('NEXTJS_BASE_URL', '').rstrip('/')
     try:
@@ -530,13 +556,8 @@ def lambda_handler(event, context):
 
     data = scrape_trainer_upcoming_races(trainer_url)
     if data:
-        wins = len(data.get('major_wins', {}).get('wins', []))
-        runners = len(data.get('previous_runners', {}).get('results', []))
-        if wins == 0 and runners == 0:
-            print(f"⚠ Results tab likely failed: 0 major wins, 0 previous runners. Skipping push of results sections.")
-            # Only push upcoming_races by stripping empty results
-            data['major_wins'] = {'total': 0, 'wins': []}
-            data['previous_runners'] = {'total': 0, 'results': []}
+        previous_runners = fetch_trainer_races()
+        data['previous_runners'] = {'total': len(previous_runners), 'results': previous_runners}
         push_to_nextjs(data, '/api/trainer-data')
     else:
         print("Failed to scrape trainer data")
