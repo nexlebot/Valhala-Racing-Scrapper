@@ -26,7 +26,9 @@ def search_active_horse(name):
     if not res.ok:
         return None
     results = res.json()
-    return next((h for h in results if h.get('horseStatus') == 'active'), None)
+    if not results:
+        return None
+    return next((h for h in results if h.get('horseStatus') == 'active'), results[0])
 
 
 def fetch_profile(horse_id):
